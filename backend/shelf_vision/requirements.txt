@@ -1,0 +1,5 @@
+onnxruntime
+numpy
+pillow
+fastapi
+python-multipart

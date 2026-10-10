@@ -1,0 +1,31 @@
+{
+  "width": 640,
+  "height": 480,
+  "fps": 8,
+  "zones": [
+    {
+      "name": "A",
+      "product": "monster",
+      "x": 2,
+      "y": 98,
+      "w": 183,
+      "h": 382
+    },
+    {
+      "name": "B",
+      "product": "cocacola",
+      "x": 189,
+      "y": 97,
+      "w": 174,
+      "h": 383
+    },
+    {
+      "name": "C",
+      "product": "lays",
+      "x": 374,
+      "y": 97,
+      "w": 266,
+      "h": 383
+    }
+  ]
+}

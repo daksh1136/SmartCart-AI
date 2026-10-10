@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrowserMultiFormatReader } from '@zxing/browser'
 import JsBarcode from 'jsbarcode'
+import DemoShelf from './DemoShelf.jsx'
 import {
   Activity, ArrowDown, ArrowRight, BadgeCheck, Barcode, Camera,
   CheckCircle2, ChevronRight, CircleAlert, CreditCard, Eye, FileCheck2,
@@ -425,6 +426,10 @@ function App() {
           </div>
           <details className="inventory-details"><summary>Shopper products and demo barcodes <span>{products.length} products · tap Demo scan to try</span></summary><div className="panel product-panel"><p className="muted small">Prototype product barcodes are generated for this demo only. Add confirmed prices before checkout.</p><div className="products-grid">{products.map(p=><div className="product-tile" key={p.id}><div className="tile-top"><div className="tile-emoji">{p.emoji}</div><span>{p.zone==='SIM'?'SIMULATED PICKUP':`ZONE ${p.zone}`}</span></div><h3>{p.name}</h3><p>{p.demo_barcode?'Demo code only: ':'Barcode: '}{p.barcode}</p><div className="tile-bottom"><b>{p.price_pending?'Price pending':money(p.price_paise)}</b><button className="tiny-text-btn" onClick={()=>scan(p.barcode)} disabled={busy}>Demo scan <Plus size={15}/></button></div></div>)}</div></div></details>
         </> : <>
+          <div className="shelf-vision-panel">
+            <DemoShelf sessionId="demo" onEvent={() => refresh()}/>
+            <p className="muted small">Recorded shelf video analyzed by the ONNX model. Camera events update physical quantities for Monster, Coca-Cola, and Lays; the video is a prototype demo, not a live shelf feed.</p>
+          </div>
           <div className="two-col operations-grid"><CameraPanel refresh={refresh} notify={notify} products={products.filter(p=>['A','B','C'].includes(p.zone))} sku={data?.sku}/><div className="panel"><div className="panel-head"><div><div className="eyebrow">NO HARDWARE NEEDED</div><h2>Simulate shelf events</h2></div><span className="pill muted">MANUAL TESTING</span></div><p className="muted">Use these controls when your webcam isn't available. Each click represents one actual item being picked up or returned.</p>
             <div className="sim-products">{products.map(p=><div className="sim-row" key={p.id}><div className="product-emoji">{p.emoji}</div><div className="sim-name"><strong>{p.name}</strong><small>{p.zone==='SIM'?'Simulated shelf':`Zone ${p.zone}`} · Physical qty {p.physical_qty}</small></div><button className="btn small-btn secondary" disabled={busy||!!data?.receipt||data?.fusion?.enabled} onClick={()=>action('/simulate',{product_id:p.id,action:'return'},`${p.name} returned`)}><Minus size={15}/> Return</button><button className="btn small-btn primary" disabled={busy||!!data?.receipt||data?.fusion?.enabled} onClick={()=>action('/simulate',{product_id:p.id,action:'pickup'},`${p.name} picked up`)}><Plus size={15}/> Pickup</button></div>)}</div>
             <div className="tip"><Info size={17}/> Manual cart changes are disabled in two-signal mode. Use the fusion camera and weight controls below instead.</div>

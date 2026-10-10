@@ -539,6 +539,35 @@ def require_operator(x_smartcart_operator_key: str | None = Header(default=None)
         raise HTTPException(401, "Operator key required to change the shared demo")
 
 
+SHELF_PRODUCT_IDS = {"monster": "monster", "cocacola": "cola", "lays": "lays"}
+
+
+def on_shelf_event(session_id: str, event: dict) -> None:
+    if session_id != "demo":
+        raise HTTPException(409, "Shelf vision is connected to the single shared demo session")
+    product_id = SHELF_PRODUCT_IDS.get(event.get("product"))
+    if not product_id or event.get("event_type") not in ("pickup", "return"):
+        raise HTTPException(422, "Shelf event has an unknown product or event type")
+    try:
+        with fusion.lock:
+            if fusion.enabled:
+                raise HTTPException(409, "Turn off weight fusion before using the recorded shelf demo")
+            change_physical(product_id, event["event_type"], source="shelf_vision")
+    except HTTPException as exc:
+        with DB_LOCK, connect() as db:
+            product = get_product(db, product_id=product_id)
+            log(db, "SHELF_EVENT_REJECTED", product_id,
+                f"Shelf AI {event['event_type']} rejected for {product['name']}: {exc.detail}",
+                "shelf_vision")
+        raise
+
+
+from shelf_vision.api import router as shelf_router, set_event_handler, vision as shelf_model_vision  # noqa: E402
+
+set_event_handler(on_shelf_event)
+app.include_router(shelf_router)
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": "single-session-demo"}
@@ -596,6 +625,7 @@ def reset():
     vision.reset_session()
     fusion.reset()
     sku_recognizer.reset_session()
+    shelf_model_vision.reset("demo")
     return status()
 
 
