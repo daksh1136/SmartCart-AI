@@ -23,8 +23,18 @@ SmartCart AI compares a customer's **digital cart** (mobile barcode scans) with 
 | A | Shampoo | `8901234500019` | ₹199 |
 | B | Biscuits | `8901234500026` | ₹20 |
 | C | Cola | `8901234500033` | ₹40 |
+| SIM | Monster 350 ml | `2990000000019` | ₹125 |
+| SIM | Lays 48 g | `2990000000026` | ₹20 |
+| SIM | Bourbon 100 g | `2990000000033` | ₹25 |
+| SIM | Conditioner 180 ml | `2990000000040` | ₹140 |
+| SIM | Cream 50 g | `2990000000057` | ₹359 |
+| SIM | Facewash 100 g | `2990000000064` | ₹105 |
+| SIM | Perfume 100 ml | `2990000000071` | ₹650 |
+| SIM | Five Star 20 g | `2990000000088` | ₹10 |
+| SIM | Volini Spray 40 g | `2990000000095` | ₹199 |
+| SIM | Coconut Oil 200 ml | `2990000000101` | ₹145 |
 
-These are demonstration barcodes, not guaranteed commercial retail barcodes.
+The added prices are representative Indian MRPs for the pack sizes listed, used as demo estimates; check each physical package for its actual printed MRP. Prototype product barcodes are generated for this app and are not retail barcodes. Reference examples: [Monster 350 ml](https://investors.monsterbevcorp.com/static-files/0629c893-0aff-4963-98ed-40b870662ffe), [Lay's 48 g](https://www.bigbasket.com/pd/102741/lays-potato-chips-simple-classic-salted-52-g-pouch/), [Britannia Bourbon 100 g](https://stores.storeking.in/product/F174364/britannia-bourbon-original-biscuit-100g-68b8922df67a007dc217679c), [conditioner 180 ml](https://www.netmeds.com/product/sunsilk-thick-long-conditioner-180-ml-lufu43-7511536), [Pond's cream 50 g](https://www.myntra.com/skin-care/ponds/ponds-bright-beauty-light-cream-with-uv-filter-niasorcinol-for-dark-spots---50g/1954336/buy), [Patanjali face wash 100 g](https://www.bigbasket.com/pb/patanjali/face-care/), [Fogg perfume 100 ml](https://www.bigbasket.com/pd/40046726/fogg-scent-xtremo-for-men-100-ml/), [Cadbury 5 Star 20 g](https://www.vishalmegamart.com/en-in/food/processed-foods/chocolates-and-sweets/cadbury-5-star-chocolate/1310003608.html), [Volini Spray 40 g](https://sunpharma.com/product-price-list/), and [Parachute coconut oil 200 ml](https://www.bigbasket.com/pd/40130536/parachute-pure-coconut-oil-200-ml-bottle/).
 
 ## Architecture
 
@@ -41,7 +51,7 @@ Requirements: Python **3.11–3.13**, Node.js 20+, and a stable webcam only if y
 **Terminal 1 — FastAPI**
 
 ```powershell
-cd "$HOME\Desktop\SmartCart-AI\backend"
+cd "$HOME\Desktop\SmartCart-AI\SmartCart-AI\backend"
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
@@ -53,7 +63,7 @@ Open [backend docs](http://localhost:8000/docs).
 **Terminal 2 — React/Vite**
 
 ```powershell
-cd "$HOME\Desktop\SmartCart-AI\frontend"
+cd "$HOME\Desktop\SmartCart-AI\SmartCart-AI\frontend"
 npm install
 npm run build
 npm run dev
@@ -65,7 +75,7 @@ Open [SmartCart AI](http://localhost:5173). Run `npm install` inside `frontend`,
 
 The repository includes a Render Blueprint and Dockerfile for a single web service that builds the React frontend and serves it through FastAPI on the same HTTPS origin. Push the project to a Git repository, then create a Blueprint in Render from that repository and deploy `render.yaml`.
 
-This public demo uses a temporary SQLite database at `/tmp/smartcart.db`; cart state resets when the Render instance restarts or redeploys. It has no user authentication and is intended only for non-sensitive demonstration data. Do not add personal data, real customer sessions, or payment credentials. Camera use requires browser permission and HTTPS; simulated checkout does not charge money.
+This public demo uses a temporary SQLite database at `/tmp/smartcart.db`; cart state resets when the Render instance restarts or redeploys. Set the Render secret `SMARTCART_OPERATOR_KEY` to require that key for all actions that change the shared session. The app prompts for the key on the first such action and keeps it in that browser tab for the session. Anyone you give the shared key to can change the demo, so use this prototype only for non-sensitive demonstration data. Do not add personal data, real customer sessions, or payment credentials. Camera use requires browser permission and HTTPS; simulated checkout does not charge money.
 
 ## The 2-minute judge demo (most reliable mode)
 

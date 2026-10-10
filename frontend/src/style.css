@@ -104,3 +104,4 @@ body{background:var(--ground);color:var(--ink);line-height:1.5}::selection{backg
 
 
 
+ .barcode-card>small{color:#865b16;font-size:9px;margin-top:5px}

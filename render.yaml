@@ -10,3 +10,5 @@ services:
     envVars:
       - key: SMARTCART_DB
         value: /tmp/smartcart.db
+      - key: SMARTCART_OPERATOR_KEY
+        sync: false

@@ -40,6 +40,31 @@ def test_return_without_scan_and_wrong_scan():
     assert client.post("/api/checkout").status_code == 409
 
 
+def test_added_demo_catalog_product_has_price_and_can_be_checked_out():
+    client.post("/api/simulate", json={"product_id": "monster", "action": "pickup"})
+    added = client.post("/api/scan", json={"barcode": "2990000000019"})
+    assert added.status_code == 200
+    product = next(p for p in added.json()["products"] if p["id"] == "monster")
+    assert product["price_paise"] == 12500
+    assert product["price_pending"] is False
+    assert added.json()["billing_ready"] is True
+    receipt = client.post("/api/checkout")
+    assert receipt.status_code == 200
+    assert receipt.json()["total_paise"] == 12500
+
+
+def test_reset_requires_operator_key_when_configured(monkeypatch):
+    monkeypatch.setenv("SMARTCART_OPERATOR_KEY", "test-operator-key")
+    assert client.post("/api/scan", json={"barcode": "8901234500019"}).status_code == 401
+    assert client.post("/api/reset").status_code == 401
+    headers = {
+        "X-SmartCart-Operator-Key": "test-operator-key",
+    }
+    assert client.post("/api/scan", json={"barcode": "8901234500019"},
+                       headers=headers).status_code == 200
+    assert client.post("/api/reset", headers=headers).status_code == 200
+
+
 def test_calibrated_camera_pickup_and_return():
     import cv2
     import numpy as np

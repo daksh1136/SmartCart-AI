@@ -50,6 +50,27 @@ def test_guided_demo_progress_requires_actual_events():
     assert not client.get('/api/status').json()['demo']['complete']
 
 
+def test_walkthrough_matches_shampoo_and_survives_long_event_history():
+    assert call('/api/simulate', {'product_id':'biscuits', 'action':'pickup'}).status_code == 200
+    assert not client.get('/api/status').json()['demo']['steps'][1]['done']
+    assert call('/api/scan', {'barcode':'8901234500026'}).status_code == 200
+    assert not client.get('/api/status').json()['demo']['steps'][3]['done']
+    for _ in range(11):
+        call('/api/simulate', {'product_id':'biscuits', 'action':'return'})
+        call('/api/simulate', {'product_id':'biscuits', 'action':'pickup'})
+    call('/api/simulate', {'product_id':'biscuits', 'action':'return'})
+    call('/api/simulate', {'product_id':'shampoo', 'action':'pickup'})
+    call('/api/scan', {'barcode':'8901234500019'})
+    demo = client.get('/api/status').json()['demo']
+    assert demo['steps'][1]['done'] and demo['steps'][3]['done']
+
+
+def test_camera_upload_rejects_oversized_body():
+    response = client.post('/api/vision/frame', content=b'x' * 2_000_001,
+                           headers={'Content-Type':'image/jpeg'})
+    assert response.status_code == 413
+
+
 def test_camera_reports_rejection_and_does_not_claim_confirmed_pickup_after_exit():
     empty = screenshot(set())
     stocked = screenshot(set('ABC'))

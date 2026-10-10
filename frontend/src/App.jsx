@@ -8,15 +8,29 @@ import {
   ShoppingBasket, Smartphone, Sparkles, VideoOff, X, DoorOpen
 } from 'lucide-react'
 
+async function fetchWithOperatorKey(url, options) {
+  const savedKey = sessionStorage.getItem('smartcart-operator-key')
+  if (savedKey) options.headers = { ...options.headers, 'X-SmartCart-Operator-Key': savedKey }
+  let response
+  try { response = await fetch(url, options) }
+  catch { throw new Error('Cannot connect to FastAPI. Start the backend on port 8000.') }
+  if (response.status === 401 && options.method !== 'GET') {
+    const key = window.prompt('Enter the demo operator key to use the shared shopping session')
+    if (!key) throw new Error('Action cancelled: operator key is required')
+    sessionStorage.setItem('smartcart-operator-key', key)
+    options.headers['X-SmartCart-Operator-Key'] = key
+    response = await fetch(url, options)
+  }
+  return response
+}
+
 async function api(path, method = 'GET', payload) {
-  const options = { method }
+  const options = { method, headers: {} }
   if (payload !== undefined) {
-    options.headers = { 'Content-Type': 'application/json' }
+    options.headers['Content-Type'] = 'application/json'
     options.body = JSON.stringify(payload)
   }
-  let response
-  try { response = await fetch(`/api${path}`, options) }
-  catch { throw new Error('Cannot connect to FastAPI. Start the backend on port 8000.') }
+  const response = await fetchWithOperatorKey(`/api${path}`, options)
   const body = await response.json().catch(() => ({}))
   if (!response.ok) throw new Error(typeof body.detail === 'string' ? body.detail : 'Request failed')
   return body
@@ -31,7 +45,7 @@ function BarcodeLabel({ product }) {
   useEffect(() => {
     if (ref.current) JsBarcode(ref.current, product.barcode, {format:'EAN13', width:1.4, height:42, fontSize:13, margin:4})
   }, [product.barcode])
-  return <div className="barcode-card"><span>{product.emoji} {product.name}</span><svg ref={ref}/></div>
+  return <div className="barcode-card"><span>{product.emoji} {product.name}</span>{product.demo_barcode&&<small>Demo-only code · not a retail barcode</small>}<svg ref={ref}/></div>
 }
 
 function Scanner({ onScan, onClose }) {
@@ -63,7 +77,7 @@ function Scanner({ onScan, onClose }) {
       <div className="modal-title"><div><div className="eyebrow">MOBILE SCANNER</div><h3>Scan product barcode</h3></div><button className="icon-btn" onClick={onClose}><X size={20}/></button></div>
       <div className="scan-video"><video ref={video} muted playsInline autoPlay/><span className="scan-outline"/><div className="scan-caption">Position the printed product barcode inside the frame</div></div>
       {error && <p className="alertline">{error}</p>}
-      <p className="muted small">This demo recognizes the three sample barcodes. Print them from the Operations tab.</p>
+      <p className="muted small">Scan one of the printed demo barcodes. Prototype product codes work only in this app and are not retail SKUs.</p>
     </div>
   </div>
 }
@@ -90,7 +104,7 @@ function CameraPanel({ refresh, notify, products, sku }) {
     setSkuBusy(true)
     setSkuError('')
     try {
-      const response = await fetch(`/api/vision/sku/${path}`, {
+      const response = await fetchWithOperatorKey(`/api/vision/sku/${path}`, {
         method:'POST', headers:{'Content-Type':'image/jpeg'}, body:await shot()
       })
       const result = await response.json().catch(() => ({}))
@@ -125,7 +139,7 @@ function CameraPanel({ refresh, notify, products, sku }) {
     canvas.toBlob(b=>b ? resolve(b) : reject(new Error('Snapshot failed')), 'image/jpeg', 0.76)
   })
   const send = async (endpoint, blob) => {
-    const res = await fetch(`/api/vision/${endpoint}`, {method:'POST', headers:{'Content-Type':'image/jpeg'}, body:blob})
+    const res = await fetchWithOperatorKey(`/api/vision/${endpoint}`, {method:'POST', headers:{'Content-Type':'image/jpeg'}, body:blob})
     const json = await res.json()
     if (!res.ok) throw new Error(json.detail || 'Vision request failed')
     setVision(json)
@@ -144,7 +158,7 @@ function CameraPanel({ refresh, notify, products, sku }) {
     if (aiBusy.current || !video.current?.videoWidth) return
     aiBusy.current = true
     try {
-      const response = await fetch('/api/vision/ai/frame', {
+      const response = await fetchWithOperatorKey('/api/vision/ai/frame', {
         method:'POST', headers:{'Content-Type':'image/jpeg'}, body:await shot()
       })
       const result = await response.json().catch(() => ({}))
@@ -220,7 +234,7 @@ function CameraPanel({ refresh, notify, products, sku }) {
         <h3>Teach your three products</h3>
         <p className="muted small">Keep the webcam fixed and place <b>Shampoo in A</b>, <b>Biscuits in B</b>, and <b>Cola in C</b>. Capture each labeled sample while all products are still and fully visible. Use the same actual packages during the demo. This is a lightweight visual similarity check, <b>not trained retail SKU recognition</b>.</p>
       </div>
-      <div className="sku-enroll-grid">{products.map(p=><button key={p.id} className="btn secondary sku-enroll-btn" disabled={!running||skuBusy} onClick={()=>skuRequest(`enroll/${p.id}`,`${p.name} example saved`)}>
+      <div className="sku-enroll-grid">{products.filter(p=>['A','B','C'].includes(p.zone)).map(p=><button key={p.id} className="btn secondary sku-enroll-btn" disabled={!running||skuBusy} onClick={()=>skuRequest(`enroll/${p.id}`,`${p.name} example saved`)}>
         <Camera size={15}/>{skuRegistered.includes(p.id)?'✓ Re-teach':'Teach'} {p.name} · {p.zone}
       </button>)}</div>
       <div className="sku-actions">
@@ -247,7 +261,7 @@ function CameraPanel({ refresh, notify, products, sku }) {
 
 function FusionPanel({ data, action, busy }) {
   const fusion = data?.fusion || {}
-  const products = data?.products || []
+  const products = (data?.products || []).filter(p=>fusion.expected_weights?.[p.id] !== undefined)
   const pending = fusion.pending || []
   const enabled = !!fusion.enabled
   return <div className="panel fusion-panel">
@@ -387,11 +401,11 @@ function App() {
               <p className="scan-helper"><Info size={15}/> No camera? Enter a printed demo barcode. To record a pickup first, open <button type="button" onClick={()=>setTab('operations')}>Shelf operations</button>.</p>
             </div>
             <div className="panel cart-panel"><div className="panel-head"><div><h2>Your cart <span className="cart-count">{totalQty} {totalQty===1?'item':'items'}</span></h2></div><span className="demo-data-label">All values are demo data.</span></div>
-              <div className="cart-table-wrap"><table className="cart-table"><thead><tr><th>Item</th><th>Price</th><th>Physical qty</th><th>Scanned qty</th><th>Status</th><th>Action</th></tr></thead><tbody>{products.map(p=><tr key={p.id}><td><span className="table-product"><span className="product-emoji">{p.emoji}</span><span><strong>{p.name}</strong><small>Shelf {p.zone}</small></span></span></td><td>{money(p.price_paise)}</td><td>{p.physical_qty}</td><td>{p.scanned_qty}</td><td><span className={`pill tiny ${classNameFor(p.status)}`}>{labelFor(p.status)}</span></td><td>{p.scanned_qty>p.physical_qty?<button title={`Remove one extra scan of ${p.name}`} className="row-action" disabled={busy} onClick={()=>action('/unscan',{product_id:p.id},'Removed one extra scan')}>Remove scan</button>:p.physical_qty>p.scanned_qty?<button title={`Scan ${p.name}`} className="row-action emphasized" disabled={busy} onClick={()=>scan(p.barcode)}>Scan item</button>:<span className="no-row-action">—</span>}</td></tr>)}</tbody></table></div>
+              <div className="cart-table-wrap"><table className="cart-table"><thead><tr><th>Item</th><th>Price</th><th>Physical qty</th><th>Scanned qty</th><th>Status</th><th>Action</th></tr></thead><tbody>{products.filter(p=>p.physical_qty||p.scanned_qty).map(p=><tr key={p.id}><td><span className="table-product"><span className="product-emoji">{p.emoji}</span><span><strong>{p.name}</strong><small>{p.zone==='SIM'?'Simulated shelf':`Shelf ${p.zone}`}</small></span></span></td><td>{p.price_pending?'Price pending':money(p.price_paise)}</td><td>{p.physical_qty}</td><td>{p.scanned_qty}</td><td><span className={`pill tiny ${classNameFor(p.status)}`}>{labelFor(p.status)}</span></td><td>{p.scanned_qty>p.physical_qty?<button title={`Remove one extra scan of ${p.name}`} className="row-action" disabled={busy} onClick={()=>action('/unscan',{product_id:p.id},'Removed one extra scan')}>Remove scan</button>:p.physical_qty>p.scanned_qty?<button title={`Scan ${p.name}`} className="row-action emphasized" disabled={busy} onClick={()=>scan(p.barcode)}>Scan item</button>:<span className="no-row-action">—</span>}</td></tr>)}</tbody></table></div>
               {!products.some(p=>p.physical_qty||p.scanned_qty)&&<div className="cart-empty">Your cart is empty. Scan a sample product to start.</div>}
               {discrepancies>0&&<div className="cart-recovery" role="status"><CircleAlert size={17}/><span><b>{discrepancies} item mismatch{discrepancies===1?'':'es'} to resolve.</b> Review shelf activity, then scan or remove the matching item.</span><button className="btn secondary" onClick={()=>setTab('operations')}>Review shelf activity <ArrowRight size={15}/></button></div>}
               {fusionPending && <div className="note danger"><CircleAlert size={16}/> Sensor evidence needs a matching camera and simulated weight event before checkout.</div>}
-              <div className="cart-checkout-summary"><div className="total-line"><span>Total <small>({totalQty} {totalQty===1?'item':'items'})</small></span><strong>{money(data?.total_paise||0)}</strong></div><div className="checkout-action"><button className="btn primary wide checkout" disabled={busy||!!data?.receipt||!data?.verified} onClick={()=>action('/checkout',undefined,'Mock checkout completed!')}><CreditCard size={18}/>{data?.receipt?'Checkout complete':data?.verified?'Proceed to checkout':'Proceed to checkout'} <ArrowRight size={17}/></button><p className="small muted">{data?.verified?'Cart quantities match. Payment is simulated.':'Please resolve item count differences to continue to checkout.'}</p></div></div>
+              <div className="cart-checkout-summary"><div className="total-line"><span>Total <small>({totalQty} {totalQty===1?'item':'items'})</small></span><strong>{money(data?.total_paise||0)}</strong></div><div className="checkout-action"><button className="btn primary wide checkout" disabled={busy||!!data?.receipt||!data?.billing_ready} onClick={()=>action('/checkout',undefined,'Mock checkout completed!')}><CreditCard size={18}/>{data?.receipt?'Checkout complete':data?.verified&&!data?.billing_ready?'Price needed for checkout':'Proceed to checkout'} <ArrowRight size={17}/></button><p className="small muted">{data?.price_pending_count?'A confirmed price is needed for each scanned prototype product.':data?.verified?'Cart quantities match. Payment is simulated.':'Please resolve item count differences to continue to checkout.'}</p></div></div>
               {data?.receipt && <div className="receipt"><FileCheck2 size={21}/><div><strong>{data.receipt.id}</strong><span>Payment simulated · {money(data.receipt.total_paise)} · No money charged</span></div></div>}
             </div>
           </div>
@@ -409,15 +423,15 @@ function App() {
               {exitOutcome.approved?<CheckCircle2 size={17}/>:<CircleAlert size={17}/>} {exitOutcome.message}
             </div>}
           </div>
-          <details className="inventory-details"><summary>Sample products and demo barcodes <span>3 products · tap Demo scan to try the flow</span></summary><div className="panel product-panel"><div className="products-grid">{products.map(p=><div className="product-tile" key={p.id}><div className="tile-top"><div className="tile-emoji">{p.emoji}</div><span>ZONE {p.zone}</span></div><h3>{p.name}</h3><p>Barcode: {p.barcode}</p><div className="tile-bottom"><b>{money(p.price_paise)}</b><button className="tiny-text-btn" onClick={()=>scan(p.barcode)} disabled={busy}>Demo scan <Plus size={15}/></button></div></div>)}</div></div></details>
+          <details className="inventory-details"><summary>Shopper products and demo barcodes <span>{products.length} products · tap Demo scan to try</span></summary><div className="panel product-panel"><p className="muted small">Prototype product barcodes are generated for this demo only. Add confirmed prices before checkout.</p><div className="products-grid">{products.map(p=><div className="product-tile" key={p.id}><div className="tile-top"><div className="tile-emoji">{p.emoji}</div><span>{p.zone==='SIM'?'SIMULATED PICKUP':`ZONE ${p.zone}`}</span></div><h3>{p.name}</h3><p>{p.demo_barcode?'Demo code only: ':'Barcode: '}{p.barcode}</p><div className="tile-bottom"><b>{p.price_pending?'Price pending':money(p.price_paise)}</b><button className="tiny-text-btn" onClick={()=>scan(p.barcode)} disabled={busy}>Demo scan <Plus size={15}/></button></div></div>)}</div></div></details>
         </> : <>
-          <div className="two-col operations-grid"><CameraPanel refresh={refresh} notify={notify} products={products} sku={data?.sku}/><div className="panel"><div className="panel-head"><div><div className="eyebrow">NO HARDWARE NEEDED</div><h2>Simulate shelf events</h2></div><span className="pill muted">MANUAL TESTING</span></div><p className="muted">Use these controls when your webcam isn't available. Each click represents one actual item being picked up or returned.</p>
-            <div className="sim-products">{products.map(p=><div className="sim-row" key={p.id}><div className="product-emoji">{p.emoji}</div><div className="sim-name"><strong>{p.name}</strong><small>Zone {p.zone} · Physical qty {p.physical_qty}</small></div><button className="btn small-btn secondary" disabled={busy||!!data?.receipt||data?.fusion?.enabled} onClick={()=>action('/simulate',{product_id:p.id,action:'return'},`${p.name} returned`)}><Minus size={15}/> Return</button><button className="btn small-btn primary" disabled={busy||!!data?.receipt||data?.fusion?.enabled} onClick={()=>action('/simulate',{product_id:p.id,action:'pickup'},`${p.name} picked up`)}><Plus size={15}/> Pickup</button></div>)}</div>
+          <div className="two-col operations-grid"><CameraPanel refresh={refresh} notify={notify} products={products.filter(p=>['A','B','C'].includes(p.zone))} sku={data?.sku}/><div className="panel"><div className="panel-head"><div><div className="eyebrow">NO HARDWARE NEEDED</div><h2>Simulate shelf events</h2></div><span className="pill muted">MANUAL TESTING</span></div><p className="muted">Use these controls when your webcam isn't available. Each click represents one actual item being picked up or returned.</p>
+            <div className="sim-products">{products.map(p=><div className="sim-row" key={p.id}><div className="product-emoji">{p.emoji}</div><div className="sim-name"><strong>{p.name}</strong><small>{p.zone==='SIM'?'Simulated shelf':`Zone ${p.zone}`} · Physical qty {p.physical_qty}</small></div><button className="btn small-btn secondary" disabled={busy||!!data?.receipt||data?.fusion?.enabled} onClick={()=>action('/simulate',{product_id:p.id,action:'return'},`${p.name} returned`)}><Minus size={15}/> Return</button><button className="btn small-btn primary" disabled={busy||!!data?.receipt||data?.fusion?.enabled} onClick={()=>action('/simulate',{product_id:p.id,action:'pickup'},`${p.name} picked up`)}><Plus size={15}/> Pickup</button></div>)}</div>
             <div className="tip"><Info size={17}/> Manual cart changes are disabled in two-signal mode. Use the fusion camera and weight controls below instead.</div>
           </div></div>
           <details className="operations-advanced"><summary>Sensor fusion controls <span>Requires simulated shelf weight · prototype</span></summary><FusionPanel data={data} action={action} busy={busy}/></details>
           <details className="operations-advanced"><summary>Print sample product labels <span>Use these barcodes to demonstrate scan-to-cart</span></summary><div className="panel labels-panel"><div className="panel-head"><div><div className="eyebrow">PRINTABLE TEST LABELS</div><h2>Demo barcodes</h2></div><button className="btn secondary" onClick={()=>setShowLabels(v=>!v)}><Barcode size={17}/>{showLabels?'Hide labels':'Show labels'}</button></div>
-            <p className="muted small">Print these EAN-13 labels and attach them to three sample products. This makes scanning much easier than using arbitrary supermarket packaging.</p>
+            <p className="muted small">Print these EAN-13 labels to try scanning. Prototype product codes work only in this app and are not retail barcodes.</p>
             {showLabels&&<><div className="barcode-grid">{products.map(p=><BarcodeLabel key={p.id} product={p}/>)}</div><button className="btn secondary print-button" onClick={()=>window.print()}>Print product labels</button></>}
           </div></details>
         </>}

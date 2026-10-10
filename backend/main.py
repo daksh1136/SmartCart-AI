@@ -15,7 +15,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -32,9 +32,20 @@ PRODUCT_WEIGHTS = {"shampoo": 250, "biscuits": 100, "cola": 330}  # demo referen
 PRODUCTS = [
     ("shampoo", "Shampoo", 19900, "8901234500019", "A", "🧴"),
     ("biscuits", "Biscuits", 2000, "8901234500026", "B", "🍪"),
-    ("cola", "Cola", 4000, "8901234500033", "C", "🥤"),
+    ("cola", "Coca-Cola", 4000, "8901234500033", "C", "🥤"),
+    # Estimated demo MRPs in rupees, based on the representative pack sizes
+    # shown in the product names. Demo barcodes are generated, not retail SKUs.
+    ("monster", "Monster 350 ml", 12500, "2990000000019", "SIM", "🥤"),
+    ("lays", "Lays 48 g", 2000, "2990000000026", "SIM", "🥔"),
+    ("bourbon", "Bourbon 100 g", 2500, "2990000000033", "SIM", "🍪"),
+    ("conditioner", "Conditioner 180 ml", 14000, "2990000000040", "SIM", "🧴"),
+    ("cream", "Cream 50 g", 35900, "2990000000057", "SIM", "🧴"),
+    ("facewash", "Facewash 100 g", 10500, "2990000000064", "SIM", "🧴"),
+    ("perfume", "Perfume 100 ml", 65000, "2990000000071", "SIM", "🧴"),
+    ("fivestar", "Five Star 20 g", 1000, "2990000000088", "SIM", "🍫"),
+    ("volini", "Volini Spray 40 g", 19900, "2990000000095", "SIM", "🧴"),
+    ("coconut_oil", "Coconut Oil 200 ml", 14500, "2990000000101", "SIM", "🧴"),
 ]
-
 
 def now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
@@ -71,6 +82,8 @@ def initialize() -> None:
         for product in PRODUCTS:
             db.execute("INSERT OR IGNORE INTO products VALUES (?, ?, ?, ?, ?, ?)", product)
             db.execute("INSERT OR IGNORE INTO cart(product_id) VALUES (?)", (product[0],))
+            db.execute("UPDATE products SET name = ?, price_paise = ? WHERE id = ?",
+                       (product[1], product[2], product[0]))
 
 
 def log(db: sqlite3.Connection, kind: str, product_id: str | None, message: str, source: str) -> None:
@@ -130,10 +143,30 @@ def status() -> dict:
             if p != s:
                 discrepancies += 1
             total += s * row["price_paise"]
-            items.append({**dict(row), "status": state})
+            items.append({**dict(row), "status": state,
+                          "price_pending": row["price_paise"] <= 0,
+                          "demo_barcode": row["zone"] == "SIM"})
         history = [dict(r) for r in db.execute(
             "SELECT * FROM events ORDER BY id DESC LIMIT 20").fetchall()]
+        demo_steps = [
+            {"title": "Reset demo session", "done": True,
+             "help": "Reset before the live presentation; restock camera zones first."},
+            {"title": "Remove Shampoo", "done": db.execute(
+                "SELECT 1 FROM events WHERE kind = 'PICKUP' AND product_id = 'shampoo' LIMIT 1").fetchone() is not None,
+             "help": "Use one physical pickup or the camera + simulated weight controls."},
+            {"title": "Try exit without scanning", "done": db.execute(
+                "SELECT 1 FROM events WHERE kind = 'EXIT_BLOCKED' LIMIT 1").fetchone() is not None,
+             "help": "Simulate reaching exit to show the unresolved-cart warning."},
+            {"title": "Scan Shampoo", "done": db.execute(
+                "SELECT 1 FROM events WHERE kind = 'SCANNED' AND product_id = 'shampoo' LIMIT 1").fetchone() is not None,
+             "help": "Open Shopper app and scan the matching barcode or use Demo scan."},
+            {"title": "Approve mock exit", "done": db.execute(
+                "SELECT 1 FROM events WHERE kind = 'EXIT_APPROVED' LIMIT 1").fetchone() is not None,
+             "help": "Try the exit again. Only a simulated receipt is issued."},
+        ]
         receipt_row = db.execute("SELECT payload FROM receipts LIMIT 1").fetchone()
+    unpriced_items = [item["name"] for item in items
+                      if item["price_pending"] and item["scanned_qty"] > 0]
     fusion_state = fusion.summary()
     if receipt_row:
         exit_state = "COMPLETED"
@@ -144,26 +177,15 @@ def status() -> dict:
     elif discrepancies:
         exit_state = "REVIEW_REQUIRED"
         exit_reason = "Physical and scanned quantities do not match"
+    elif unpriced_items:
+        exit_state = "REVIEW_REQUIRED"
+        exit_reason = "Add confirmed prices before checkout: " + ", ".join(unpriced_items)
     elif not any(i["scanned_qty"] for i in items):
         exit_state = "EMPTY_CART"
         exit_reason = "Scan and verify at least one item"
     else:
         exit_state = "READY"
         exit_reason = "Cart verified; eligible for simulated exit billing"
-    # The judge walkthrough reflects genuine recorded events, never auto-generated successes.
-    event_types = {e["kind"] for e in history}
-    demo_steps = [
-        {"title": "Reset demo session", "done": True,
-         "help": "Reset before the live presentation; restock camera zones first."},
-        {"title": "Remove Shampoo", "done": "PICKUP" in event_types,
-         "help": "Use one physical pickup or the camera + simulated weight controls."},
-        {"title": "Try exit without scanning", "done": "EXIT_BLOCKED" in event_types,
-         "help": "Simulate reaching exit to show the unresolved-cart warning."},
-        {"title": "Scan Shampoo", "done": "SCANNED" in event_types,
-         "help": "Open Shopper app and scan the matching barcode or use Demo scan."},
-        {"title": "Approve mock exit", "done": "EXIT_APPROVED" in event_types,
-         "help": "Try the exit again. Only a simulated receipt is issued."},
-    ]
     first_pending = next((i for i, step in enumerate(demo_steps[1:], start=1) if not step["done"]), None)
     return {
         "demo": {"steps": demo_steps, "current_step": first_pending,
@@ -174,8 +196,11 @@ def status() -> dict:
         "products": items,
         "events": history,
         "total_paise": total,
+        "price_pending_count": len(unpriced_items),
         "discrepancy_count": discrepancies,
         "verified": discrepancies == 0 and any(i["scanned_qty"] for i in items) and not fusion_state["blocked"],
+        "billing_ready": discrepancies == 0 and not unpriced_items
+                         and any(i["scanned_qty"] for i in items) and not fusion_state["blocked"],
         "receipt": json.loads(receipt_row["payload"]) if receipt_row else None,
         "vision": vision.summary(),
         "fusion": fusion_state,
@@ -508,6 +533,12 @@ app.add_middleware(CORSMiddleware, allow_origins=[origin.strip() for origin in a
                    allow_methods=["*"], allow_headers=["*"])
 
 
+def require_operator(x_smartcart_operator_key: str | None = Header(default=None)) -> None:
+    operator_key = os.environ.get("SMARTCART_OPERATOR_KEY", "")
+    if operator_key and x_smartcart_operator_key != operator_key:
+        raise HTTPException(401, "Operator key required to change the shared demo")
+
+
 @app.get("/api/health")
 def health():
     return {"ok": True, "mode": "single-session-demo"}
@@ -518,7 +549,7 @@ def current_status():
     return status()
 
 
-@app.post("/api/scan")
+@app.post("/api/scan", dependencies=[Depends(require_operator)])
 def scan(payload: ScanRequest):
     with DB_LOCK, connect() as db:
         ensure_not_paid(db)
@@ -531,7 +562,7 @@ def scan(payload: ScanRequest):
     return status()
 
 
-@app.post("/api/unscan")
+@app.post("/api/unscan", dependencies=[Depends(require_operator)])
 def unscan(payload: RemoveRequest):
     with DB_LOCK, connect() as db:
         ensure_not_paid(db)
@@ -544,7 +575,7 @@ def unscan(payload: RemoveRequest):
     return status()
 
 
-@app.post("/api/simulate")
+@app.post("/api/simulate", dependencies=[Depends(require_operator)])
 def simulate(payload: PhysicalRequest):
     # Enforce the same boundary server-side as the disabled frontend buttons:
     # manual events must not bypass camera+weight verification in fusion mode.
@@ -555,7 +586,7 @@ def simulate(payload: PhysicalRequest):
     return status()
 
 
-@app.post("/api/reset")
+@app.post("/api/reset", dependencies=[Depends(require_operator)])
 def reset():
     with DB_LOCK, connect() as db:
         db.execute("UPDATE cart SET physical_qty = 0, scanned_qty = 0")
@@ -602,6 +633,13 @@ def create_demo_receipt(*, exit_attempt: bool = False) -> dict:
                 log(db, "EXIT_BLOCKED", None, message, "exit_simulator")
                 db.commit()  # rejection must remain visible in event feed
             raise HTTPException(409, message)
+        unpriced = [r["name"] for r in lines if r["price_paise"] <= 0]
+        if unpriced:
+            message = "Add confirmed prices before checkout: " + ", ".join(unpriced)
+            if exit_attempt:
+                log(db, "EXIT_BLOCKED", None, message, "exit_simulator")
+                db.commit()
+            raise HTTPException(409, message)
         receipt = {
             "id": "DEMO-" + uuid.uuid4().hex[:8].upper(),
             "created_at": now(),
@@ -617,30 +655,37 @@ def create_demo_receipt(*, exit_attempt: bool = False) -> dict:
         return receipt
 
 
-@app.post("/api/checkout")
+@app.post("/api/checkout", dependencies=[Depends(require_operator)])
 def checkout():
     return create_demo_receipt()
 
 
-@app.post("/api/exit/attempt")
+@app.post("/api/exit/attempt", dependencies=[Depends(require_operator)])
 def simulate_exit():
     """Mock exit sensor trigger; no real proximity detector or payment gateway."""
     return create_demo_receipt(exit_attempt=True)
 
 
 async def image_body(request: Request) -> bytes:
-    data = await request.body()
-    if not data or len(data) > 2_000_000:
+    max_bytes = 2_000_000
+    if request.headers.get("content-length") and int(request.headers["content-length"]) > max_bytes:
         raise HTTPException(413, "JPEG frame must be between 1B and 2MB")
-    return data
+    chunks = bytearray()
+    async for chunk in request.stream():
+        if len(chunks) + len(chunk) > max_bytes:
+            raise HTTPException(413, "JPEG frame must be between 1B and 2MB")
+        chunks.extend(chunk)
+    if not chunks:
+        raise HTTPException(413, "JPEG frame must be between 1B and 2MB")
+    return bytes(chunks)
 
 
-@app.post("/api/vision/calibrate/{kind}")
+@app.post("/api/vision/calibrate/{kind}", dependencies=[Depends(require_operator)])
 async def calibrate(kind: str, request: Request):
     return vision.calibrate(kind, await image_body(request))
 
 
-@app.post("/api/vision/frame")
+@app.post("/api/vision/frame", dependencies=[Depends(require_operator)])
 async def frame(request: Request):
     return vision.process(await image_body(request))
 
@@ -650,7 +695,7 @@ def ai_status():
     return yolo_assist.status()
 
 
-@app.post("/api/vision/ai/frame")
+@app.post("/api/vision/ai/frame", dependencies=[Depends(require_operator)])
 async def ai_frame(request: Request):
     # AI output is experimental and never changes the cart.
     data = await image_body(request)
@@ -662,13 +707,13 @@ def sku_status():
     return sku_recognizer.status()
 
 
-@app.post("/api/vision/sku/enroll/{product_id}")
+@app.post("/api/vision/sku/enroll/{product_id}", dependencies=[Depends(require_operator)])
 async def sku_enroll(product_id: str, request: Request):
     # Enrollment must be a deliberate operator action. Never auto-train on shoppers.
     return await run_in_threadpool(sku_recognizer.enroll, product_id, await image_body(request))
 
 
-@app.post("/api/vision/sku/recognize")
+@app.post("/api/vision/sku/recognize", dependencies=[Depends(require_operator)])
 async def sku_recognize(request: Request):
     frame_bytes = await image_body(request)
     # Appearance is deliberately independent of occupancy calibration;
@@ -676,25 +721,25 @@ async def sku_recognize(request: Request):
     return await run_in_threadpool(sku_recognizer.recognize, frame_bytes)
 
 
-@app.post("/api/fusion/mode")
+@app.post("/api/fusion/mode", dependencies=[Depends(require_operator)])
 def fusion_mode(payload: FusionModeRequest):
     fusion.set_mode(payload.enabled)
     return status()
 
 
-@app.post("/api/fusion/clear")
+@app.post("/api/fusion/clear", dependencies=[Depends(require_operator)])
 def fusion_clear():
     fusion.clear()
     return status()
 
 
-@app.post("/api/fusion/camera")
+@app.post("/api/fusion/camera", dependencies=[Depends(require_operator)])
 def fusion_camera(payload: FusionSignalRequest):
     fusion.record_signal("camera", payload.product_id, payload.action)
     return status()
 
 
-@app.post("/api/fusion/weight")
+@app.post("/api/fusion/weight", dependencies=[Depends(require_operator)])
 def fusion_weight(payload: WeightRequest):
     fusion.record_weight(payload.product_id, payload.weight_grams)
     return status()
