@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: smartcart-ai
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    autoDeploy: false
+    envVars:
+      - key: SMARTCART_DB
+        value: /tmp/smartcart.db

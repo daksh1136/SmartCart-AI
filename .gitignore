@@ -1,0 +1,17 @@
+node_modules/
+dist/
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.db
+*.db-shm
+*.db-wal
+.env
+.impeccable/
+.render/
+.claude/
+.codex/
+
+# Local operator-enrolled appearance references
+backend/sku_templates/

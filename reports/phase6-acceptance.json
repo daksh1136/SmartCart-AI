@@ -1,0 +1,15 @@
+{
+  "generated_at": "2026-10-10T08:36:11+00:00",
+  "phase": 6,
+  "suite": "FastAPI + synthetic camera + simulated fusion + mocked exit",
+  "result": "PASS",
+  "passed_tests": 17,
+  "failed_tests": 0,
+  "command": "python -m pytest -q tests",
+  "backend_tests_only": true,
+  "real_webcam_tested": false,
+  "physical_weight_sensors_tested": false,
+  "frontend_build_tested_by_script": false,
+  "real_payments_tested": false,
+  "stdout": ".................                                                        [100%]\n17 passed in 0.87s"
+}

@@ -1,0 +1,3 @@
+# Optional experimental object tracking; requires torch + model weights
+-r requirements.txt
+ultralytics>=8.3,<9

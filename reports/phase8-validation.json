@@ -1,0 +1,10 @@
+{
+  "phase": 8,
+  "scope": "Submission documentation and 10-slide pitch deck; application code unchanged from Phase 7",
+  "backend_tests": {"result": "PASS", "count_passed": 22, "count_failed": 0, "command": "cd backend && python -m pytest -q tests", "uses_real_hardware": false},
+  "slides": {"count": 10, "rendered": true, "overflow_check": "PASS"},
+  "frontend_build": {"result": "NOT VERIFIED", "reason": "npm install failed: EAI_AGAIN registry.npmjs.org in generation environment"},
+  "webcam_real_device": "NOT VERIFIED",
+  "physical_weight_sensor": "NOT IMPLEMENTED",
+  "payment": "MOCK ONLY"
+}
